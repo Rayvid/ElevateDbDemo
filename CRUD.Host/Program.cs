@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Data;
-using System.Data.Common;
+using System.Text;
 using Edb.Extensions;
 using Elevate.ElevateDB.Data;
 
@@ -8,52 +8,70 @@ namespace CRUD.Host
 {
     internal class Program
     {
-        private static EDBConnection CreateDemoConnectionInteractive(string db)
+        private static EDBConnection CreateDemoConnectionInteractive(string db, bool doLocal)
         {
-            var localConnectionString = new EDBConnectionStringBuilder
+            var connectionString = new EDBConnectionStringBuilder
             {
                 Database = "Configuration",
-                CharSet = "UNICODE"
+                CharSet = "UNICODE",
+                ConfigMemory = false
             };
 
-            Console.Write("Local DB folder (Hit <Enter> to switch to inmemory): ");
-            var localDbFolder = Console.ReadLine();
-            localConnectionString.ConfigMemory = false;
-            if (!string.IsNullOrEmpty(localDbFolder))
+            if (doLocal)
             {
-                localConnectionString.ConfigPath = localDbFolder;
+                connectionString.Type = "LOCAL";
+
+                Console.Write("Local DB folder (Hit <Enter> to switch to inmemory): ");
+                var localDbFolder = Console.ReadLine();
+                connectionString.ConfigMemory = false;
+                if (!string.IsNullOrEmpty(localDbFolder))
+                {
+                    connectionString.ConfigPath = localDbFolder;
+                }
+                else
+                {
+                    connectionString.ConfigMemory = true;
+                }
             }
             else
             {
-                localConnectionString.ConfigMemory = true;
+                connectionString.Type = "REMOTE";
+
+                Console.Write("Host (Hit <Enter> to switch to localhost): ");
+                var host = Console.ReadLine();
+                connectionString.Host = string.IsNullOrEmpty(host) ? "localhost" : host;
+
+                Console.Write("Port (Hit <Enter> to switch to 12010): ");
+                var port = Console.ReadLine();
+                connectionString.Port = string.IsNullOrEmpty(port) ? 12010 : int.Parse(port);
             }
 
             Console.Write("Username (Hit <Enter> to Administrator): ");
             var userName = Console.ReadLine();
-            localConnectionString.UID = string.IsNullOrEmpty(userName) ? "Administrator" : userName;
+            connectionString.UID = string.IsNullOrEmpty(userName) ? "Administrator" : userName;
 
             Console.Write("Password (Hit <Enter> to EDBDefault): ");
             var password = Console.ReadLine();
-            localConnectionString.PWD = string.IsNullOrEmpty(password) ? "EDBDefault" : password;
+            connectionString.PWD = string.IsNullOrEmpty(password) ? "EDBDefault" : password;
 
-            Console.Write("Initiating local connection... ");
-            using (var connection = new EDBConnection(localConnectionString.ToString()))
+            Console.Write("Initiating connection... ");
+            using (var connection = new EDBConnection(connectionString.ToString()))
             {
                 connection.Open();
                 Console.WriteLine("SUCCESS");
 
                 Console.Write("Opening database... ");
-                localConnectionString.Database = db;
-                using (var connection2 = new EDBConnection(localConnectionString.ToString()))
+                connectionString.Database = db;
+                using (var connection2 = new EDBConnection(connectionString.ToString()))
                 {
                     try
                     {
                         connection2.Open();
                         Console.WriteLine("SUCCESS");
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        Console.Write("FAILED... Creating in memory database... ");
+                        Console.Write("FAILED... Creating inmemory database for demo purposes... ");
                         using (
                             var cmd =
                                 new EDBCommand(
@@ -104,92 +122,136 @@ value_bool BOOL
                         cmd.ExecuteNonQuery();
                         Console.WriteLine("SUCCESS");
 
-                        return new EDBConnection(localConnectionString.ToString());
+                        return new EDBConnection(connectionString.ToString());
                     }
                 }
             }
         }
 
-        private static void Main(string[] args)
+        private static void DoDemo(EDBConnection connection)
         {
-            Console.OutputEncoding = System.Text.Encoding.Unicode;
-            Console.Write("Local DB name to connect or create (Hit <Enter> to skip local demo): ");
+            Console.Write("Inserting row 1... ");
+            using (var cmd = new EdbAffectedRowsCommand("INSERT INTO demo (value_unicode) VALUES (:param)", connection))
+            {
+                cmd.Prepare();
+                cmd.Parameters.Add(
+                    new EDBParameter("param", "Lithuanian chars: ĖĮĘĮŲŠŲŪŠŲčęėūįčųū, russian chars: ваниа маша"));
+
+                // Bit overprotective probably, but using 3rd party libs its usual to be overprotective
+                if (cmd.Execute() != 1)
+                    throw new InvalidOperationException();
+                //
+
+                Console.WriteLine("DONE");
+            }
+
+            Console.Write("Inserting row 2... ");
+            using (
+                var cmd = new EdbAffectedRowsCommand(
+                    "INSERT INTO demo (value_unicode, value_decimal) VALUES (:param1, :param2)",
+                    connection))
+            {
+                cmd.Prepare();
+                cmd.Parameters.Add(new EDBParameter("param1", DBNull.Value));
+                cmd.Parameters.Add(
+                    new EDBParameter(
+                        "param2",
+                        3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679m));
+
+                // Bit overprotective probably, but using 3rd party libs its usual to be overprotective
+                if (cmd.Execute() != 1)
+                    throw new InvalidOperationException();
+                //
+                
+                Console.WriteLine("DONE");
+            }
+
+            Console.Write("Inserting row 3, and get its id... ");
+            using (
+                var cmd =
+                    new EdbAffectedRowsCommand(
+                        "INSERT INTO demo (value_unicode, value_decimal, value_datetime, value_bool) VALUES (:param1, :param2, :param3, :param4)",
+                        connection))
+            {
+                cmd.Prepare();
+                cmd.Parameters.Add(new EDBParameter("param1", DBNull.Value));
+                cmd.Parameters.Add(new EDBParameter("param2", DBNull.Value));
+                cmd.Parameters.Add(new EDBParameter("param3", DateTime.UtcNow));
+                cmd.Parameters.Add(new EDBParameter("param4", true));
+
+                // Bit overprotective probably, but using 3rd party libs its usual to be overprotective
+                if (cmd.Execute() != 1)
+                    throw new InvalidOperationException();
+                //
+
+                using (var cmd2 = new EdbScalarCommand<int>("SELECT LASTIDENTITY('demo', 'id')", connection))
+                {
+                    Console.WriteLine($"DONE, with id - {cmd2.Execute()}");
+                }
+            }
+
+            Console.Write("Getting two rows... ");
+            using (var cmd = new EdbDataTableCommand("SELECT * FROM demo RANGE 2 TO 3", connection))
+            {
+                var dt = cmd.Execute();
+                Console.WriteLine("DONE");
+
+                foreach (DataRow row in dt.Rows)
+                {
+                    Console.WriteLine(
+                        $"Got row with id: {row["id"]}, timestamp: {row["value_datetime"]}, values: {row["value_unicode"]},{row["value_decimal"]},{row["value_bool"]}");
+                }
+            }
+
+            Console.Write("Updating timestamps where null... ");
+            using (
+                var cmd = new EdbAffectedRowsCommand(
+                    "UPDATE demo SET value_datetime = :param WHERE value_datetime IS NULL",
+                    connection))
+            {
+                cmd.Prepare();
+                cmd.Parameters.Add(new EDBParameter("param", DateTime.MinValue));
+                var cnt = cmd.Execute();
+                Console.WriteLine($"DONE, {cnt} rows updated");
+            }
+
+            Console.Write("Getting all rows... ");
+            using (var cmd = new EdbDataTableCommand("SELECT * FROM demo", connection))
+            {
+                var dt = cmd.Execute();
+                Console.WriteLine("DONE");
+
+                foreach (DataRow row in dt.Rows)
+                {
+                    Console.WriteLine(
+                        $"Got row with id: {row["id"]}, timestamp: {row["value_datetime"]}, values: {row["value_unicode"]},{row["value_decimal"]},{row["value_bool"]}");
+                }
+            }
+        }
+
+        private static void Main()
+        {
+            Console.OutputEncoding = Encoding.Unicode;
+
+            Console.Write("Local DB name to connect or autocreate (Hit <Enter> to skip local demo): ");
             var localDbName = Console.ReadLine();
             if (!string.IsNullOrEmpty(localDbName))
             {
-                using (var connection = CreateDemoConnectionInteractive(localDbName))
+                using (var connection = CreateDemoConnectionInteractive(localDbName, true))
                 {
                     connection.Open();
+                    DoDemo(connection);
+                }
+            }
 
-                    Console.Write("Inserting row 1... ");
-                    using (var cmd = new EdbAffectedRowsCommand("INSERT INTO demo (value_unicode) VALUES (:param)", connection))
-                    {
-                        cmd.Prepare();
-                        cmd.Parameters.Add(new EDBParameter("param", "Lithuanian chars: ĖĮĘĮŲŠŲŪŠŲčęėūįčųū, russian chars: ваниа маша"));
-
-                        if (cmd.Execute() != 1) throw new InvalidOperationException(); // Bit overprotective probably, but using 3rd party libs its usual to be overprotective
-                        Console.WriteLine("DONE");
-                    }
-
-                    Console.Write("Inserting row 2... ");
-                    using (var cmd = new EdbAffectedRowsCommand("INSERT INTO demo (value_unicode, value_decimal) VALUES (:param1, :param2)", connection))
-                    {
-                        cmd.Prepare();
-                        cmd.Parameters.Add(new EDBParameter("param1", DBNull.Value));
-                        cmd.Parameters.Add(new EDBParameter("param2", 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679m));
-
-                        if (cmd.Execute() != 1) throw new InvalidOperationException(); // Bit overprotective probably, but using 3rd party libs its usual to be overprotective
-                        Console.WriteLine("DONE");
-                    }
-
-                    Console.Write("Inserting row 3, and get its id... ");
-                    using (var cmd = new EdbAffectedRowsCommand("INSERT INTO demo (value_unicode, value_decimal, value_datetime, value_bool) VALUES (:param1, :param2, :param3, :param4)", connection))
-                    {
-                        cmd.Prepare();
-                        cmd.Parameters.Add(new EDBParameter("param1", DBNull.Value));
-                        cmd.Parameters.Add(new EDBParameter("param2", DBNull.Value));
-                        cmd.Parameters.Add(new EDBParameter("param3", DateTime.UtcNow));
-                        cmd.Parameters.Add(new EDBParameter("param4", true));
-
-                        if (cmd.Execute() != 1) throw new InvalidOperationException(); // Bit overprotective probably, but using 3rd party libs its usual to be overprotective
-                        using (var cmd2 = new EdbScalarCommand<int>("SELECT LASTIDENTITY('demo', 'id')", connection))
-                        {
-                            Console.WriteLine($"DONE, with id - {cmd2.Execute()}");
-                        }
-                    }
-
-                    Console.Write("Getting two rows... ");
-                    using (var cmd = new EdbDataTableCommand("SELECT * FROM demo RANGE 2 TO 3", connection))
-                    {
-                        var dt = cmd.Execute();
-                        Console.WriteLine("DONE");
-
-                        foreach (DataRow row in dt.Rows)
-                        {
-                            Console.WriteLine($"Got row with id: {row["id"]}, timestamp: {row["value_datetime"]}, values: {row["value_unicode"]},{row["value_decimal"]},{row["value_bool"]}");
-                        }
-                    }
-
-                    Console.Write("Updating timestamps where null... ");
-                    using (var cmd = new EdbAffectedRowsCommand("UPDATE demo SET value_datetime = :param WHERE value_datetime IS NULL", connection))
-                    {
-                        cmd.Prepare();
-                        cmd.Parameters.Add(new EDBParameter("param", DateTime.MinValue));
-                        var cnt = cmd.Execute();
-                        Console.WriteLine($"DONE, {cnt} rows updated");
-                    }
-
-                    Console.Write("Getting all rows... ");
-                    using (var cmd = new EdbDataTableCommand("SELECT * FROM demo", connection))
-                    {
-                        var dt = cmd.Execute();
-                        Console.WriteLine("DONE");
-
-                        foreach (DataRow row in dt.Rows)
-                        {
-                            Console.WriteLine($"Got row with id: {row["id"]}, timestamp: {row["value_datetime"]}, values: {row["value_unicode"]},{row["value_decimal"]},{row["value_bool"]}");
-                        }
-                    }
+            Console.Write("Remote DB name to connect or autocreate (Hit <Enter> to skip remote demo): ");
+            var remoteDbName = Console.ReadLine();
+            if (!string.IsNullOrEmpty(remoteDbName))
+            {
+                using (var connection = CreateDemoConnectionInteractive(remoteDbName, false))
+                {
+                    connection.Open();
+                    DoDemo(connection);
                 }
             }
         }
