@@ -75,7 +75,7 @@ namespace CRUD.Host
                         using (
                             var cmd =
                                 new EDBCommand(
-                                    $"CREATE DATABASE \"{db.Replace("\"", "\"\"")}\" IN MEMORY",
+                                    string.Format("CREATE DATABASE \"{0}\" IN MEMORY", db.Replace("\"", "\"\"")),
                                     // DDL escaping, no standard way to do this
                                     connection))
                         {
@@ -186,7 +186,7 @@ value_bool BOOL
 
                 using (var cmd2 = new EdbScalarCommand<int>("SELECT LASTIDENTITY('demo', 'id')", connection))
                 {
-                    Console.WriteLine($"DONE, with id - {cmd2.Execute()}");
+                    Console.WriteLine("DONE, with id - {0}", cmd2.Execute());
                 }
             }
 
@@ -199,7 +199,12 @@ value_bool BOOL
                 foreach (DataRow row in dt.Rows)
                 {
                     Console.WriteLine(
-                        $"Got row with id: {row["id"]}, timestamp: {row["value_datetime"]}, values: {row["value_unicode"]},{row["value_decimal"]},{row["value_bool"]}");
+                        "Got row with id: {0}, timestamp: {1}, values: {2},{3},{4}",
+                        row["id"],
+                        row["value_datetime"],
+                        row["value_unicode"],
+                        row["value_decimal"],
+                        row["value_bool"]);
                 }
             }
 
@@ -212,7 +217,7 @@ value_bool BOOL
                 cmd.Prepare();
                 cmd.Parameters.Add(new EDBParameter("param", DateTime.MinValue));
                 var cnt = cmd.Execute();
-                Console.WriteLine($"DONE, {cnt} rows updated");
+                Console.WriteLine("DONE, {0} rows updated", cnt);
             }
 
             Console.Write("Getting all rows... ");
@@ -224,7 +229,12 @@ value_bool BOOL
                 foreach (DataRow row in dt.Rows)
                 {
                     Console.WriteLine(
-                        $"Got row with id: {row["id"]}, timestamp: {row["value_datetime"]}, values: {row["value_unicode"]},{row["value_decimal"]},{row["value_bool"]}");
+                        "Got row with id: {0}, timestamp: {1}, values: {2},{3},{4}",
+                        row["id"],
+                        row["value_datetime"],
+                        row["value_unicode"],
+                        row["value_decimal"],
+                        row["value_bool"]);
                 }
             }
         }
